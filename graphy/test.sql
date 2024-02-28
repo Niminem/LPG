@@ -11,25 +11,23 @@ CREATE TABLE IF NOT EXISTS nodes (
     id TEXT GENERATED ALWAYS AS (json_extract(properties, '$.id')) VIRTUAL NOT NULL UNIQUE,
     label TEXT GENERATED ALWAYS AS (json_extract(properties, '$.label')) VIRTUAL,
     properties TEXT,
-    PRIMARY KEY(id)
+    -- PRIMARY KEY(id) -- removed for now: id can't be primary key as it's virtual
     );
 
 CREATE INDEX IF NOT EXISTS id_idx ON nodes(id);
 CREATE INDEX IF NOT EXISTS label_idx ON nodes(label);
-
 CREATE TABLE IF NOT EXISTS edges (
     id TEXT GENERATED ALWAYS AS (json_extract(properties, '$.id')) VIRTUAL NOT NULL UNIQUE,
     label TEXT GENERATED ALWAYS AS (json_extract(properties, '$.label')) VIRTUAL,
-    source TEXT,
-    target TEXT,
+    incoming TEXT,
+    outgoing TEXT,
     properties TEXT,
-    FOREIGN KEY(source) REFERENCES nodes(id) ON DELETE CASCADE,
-    FOREIGN KEY(target) REFERENCES nodes(id) ON DELETE CASCADE,
-    PRIMARY KEY(id),
-    UNIQUE(source, target, label) ON CONFLICT REPLACE
+    FOREIGN KEY(incoming) REFERENCES nodes(id) ON DELETE CASCADE,
+    FOREIGN KEY(outgoing) REFERENCES nodes(id) ON DELETE CASCADE,
+    -- PRIMARY KEY(id), -- removed for now: id can't be primary key as it's virtual
+    UNIQUE(incoming, outgoing, label) ON CONFLICT REPLACE
     );
-
 CREATE INDEX IF NOT EXISTS id_idx ON edges(id);
 CREATE INDEX IF NOT EXISTS label_idx ON edges(label);
-CREATE INDEX IF NOT EXISTS source_idx ON edges(source);
-CREATE INDEX IF NOT EXISTS target_idx ON edges(target);
+CREATE INDEX IF NOT EXISTS incoming_idx ON edges(incoming);
+CREATE INDEX IF NOT EXISTS outgoing_idx ON edges(outgoing);

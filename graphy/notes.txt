@@ -1,0 +1,4 @@
+2/28/24:
+- Need to test VIRTUAL vs STORED generated columns for node/edge ids and labels.
+  Currently, I've decided to just stick with VIRTUAL for now. There are good
+  arguments for both and trade-offs for both. Even a blend may be necessary.
