@@ -1,6 +1,8 @@
 import std/[json, strformat, options, strutils]
 import pkg/db_connector/db_sqlite
 
+# 2/29/24: take what's needed here, modify as necessary, add to lpg.nim
+
 # SELECT {{ result_column }} -- id|body
 # FROM nodes{% if tree %}, json_tree(body{% if key %}, '$.{{ key }}'{% endif %}){% endif %}{% if search_clauses %}
 # WHERE {% for search_clause in search_clauses %}
