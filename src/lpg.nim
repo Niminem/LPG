@@ -1,4 +1,4 @@
-import std/[json, oids, strutils, uri]
+import std/[json, oids, strutils, uri, strformat, os]
 import pkg/db_connector/db_sqlite
 {.experimental: "codeReordering".} # removing need for forward declarations
 
@@ -17,13 +17,9 @@ type
 
 proc initGraphDb*(dbFileName = ":memory:"): DbConn =
     result = open(dbFileName, "", "", "")
-    result.exec(sql"PRAGMA foreign_keys = ON;") # enable foreign keys (disabled by default in sqlite)
-    result.exec(sql"""CREATE TABLE IF NOT EXISTS nodes (
-    id TEXT NOT NULL UNIQUE,
-    label TEXT,
-    properties TEXT CHECK(json_valid(properties)),
-    PRIMARY KEY(id) -- sqlite creates an index implicitly from the primary key
-    );""")
+    result.exec(sql"PRAGMA foreign_keys = ON; -- note: disabled by default in sqlite")
+    const nodeTableStmt = staticRead(currentSourcePath.parentDir() / "sql" / "node_table.sql")
+    result.exec(sql(nodeTableStmt))
     result.exec(sql"CREATE INDEX IF NOT EXISTS node_label_idx ON nodes(label);")
     result.exec(sql"""CREATE TABLE IF NOT EXISTS edges (
     id TEXT NOT NULL UNIQUE,
@@ -31,7 +27,7 @@ proc initGraphDb*(dbFileName = ":memory:"): DbConn =
     incoming TEXT,
     outgoing TEXT,
     properties TEXT CHECK(json_valid(properties)),
-    PRIMARY KEY(id), -- sqlite creates an index implicitly from the primary key
+    PRIMARY KEY(id), -- note: sqlite creates an index implicitly from the primary key
     FOREIGN KEY(incoming) REFERENCES nodes(id) ON DELETE CASCADE,
     FOREIGN KEY(outgoing) REFERENCES nodes(id) ON DELETE CASCADE,
     UNIQUE(incoming, outgoing, label) ON CONFLICT REPLACE
@@ -52,7 +48,7 @@ proc name*(db: var DbConn): string =
         result = data
         .parseUri
         .path
-        .replace("\\","/") # windows fix
+        .replace("\\","/") # windows fix for backslashes
         .split("/")[^1]
 
 proc numberOfNodes*(db: var DbConn): int =
@@ -71,14 +67,16 @@ proc edgeLabels*(db: var DbConn): seq[string] =
 
 proc addNode*(db: var DbConn; label: string; properties = newJObject(); nodeId = $genOid()): NodeId {.discardable.} =
     db.exec(sql"INSERT INTO nodes VALUES(?, ?, json(?))", nodeId, label, $properties)
-    # TODO: add partial index IF new node label & check query plan w/ example to see if it's used
-    # EXPLAIN QUERY PLAN (will show the query plan for a given query)
+    if label != "":
+        db.exec(sql(fmt"CREATE INDEX IF NOT EXISTS idx_nodes_{label} ON nodes(label) WHERE label = ?"), label, label)
+        # TODO: check query plan w/ example to see if index is used
     result = nodeId
 
 proc addEdge*(db: var DbConn; incomingNodeId, label, outgoingNodeId: string; properties = newJObject(); edgeId = $genOid()): EdgeId {.discardable.} =
     db.exec(sql"INSERT INTO edges VALUES(?, ?, ?, ?, json(?))", edgeId, label, incomingNodeId, outgoingNodeId, $properties)
-    # TODO: add partial index IF new edge label & check query plan w/ example to see if it's used
-    # EXPLAIN QUERY PLAN (will show the query plan for a given query)
+    if label != "":
+        db.exec(sql(fmt"CREATE INDEX IF NOT EXISTS idx_edges_{label} ON edges(label) WHERE label = ?"), label, label)
+        # TODO: check query plan w/ example to see if index is used
     result = edgeId
 
 proc getNode*(db: var DbConn; nodeId: NodeId): Node =
@@ -87,25 +85,11 @@ proc getNode*(db: var DbConn; nodeId: NodeId): Node =
         result = Node(id: row[0], label: row[1], properties: row[2].parseJson)
     else: raise newException(ValueError, "Node not found for ID: " & nodeId)
 
-proc getNodeJson*(db: var DbConn; nodeId: NodeId): JsonNode =
-    if db.containsNode(nodeId):
-        let row = db.getRow(sql"SELECT * FROM nodes WHERE id = ?", nodeId)
-        result = %*{"id": row[0], "label": row[1], "properties": row[2].parseJson}
-    else:
-        result = %*{"error": "Node not found for ID: " & nodeId}
-
 proc getEdge*(db: var DbConn; edgeId: EdgeId): Edge =
     if db.containsEdge(edgeId):
         let row = db.getRow(sql"SELECT * FROM edges WHERE id = ?", edgeId)
         result = Edge(id: row[0], label: row[1], incoming: row[2], outgoing: row[3], properties: row[4].parseJson)
     else: raise newException(ValueError, "Edge not found for ID: " & edgeId)
-
-proc getEdgeJson*(db: var DbConn; edgeId: EdgeId): JsonNode =
-    if db.containsEdge(edgeId):
-        let row = db.getRow(sql"SELECT * FROM edges WHERE id = ?", edgeId)
-        result = %*{"id": row[0], "label": row[1], "incoming": row[2], "outgoing": row[3], "properties": row[4].parseJson}
-    else:
-        result = %*{"error": "Edge not found for ID: " & edgeId}
 
 proc containsNode*(db: var DbConn; nodeId: NodeId): bool =
     result = db.getValue(sql"SELECT EXISTS(SELECT 1 FROM nodes WHERE id = ?)", nodeId).parseInt > 0
@@ -119,29 +103,38 @@ proc delNode*(db: var DbConn; nodeId: NodeId) =
 proc delEdge*(db: var DbConn; edgeId: EdgeId) =
     db.exec(sql"DELETE FROM edges WHERE id = ?", edgeId)
 
-proc updateNodeProps*(db: var DbConn; nodeId: NodeId; properties: JsonNode) =
-    db.exec(sql"UPDATE nodes SET properties = json(?) WHERE id = ?", $properties, nodeId)
+proc updateNode*(db: var DbConn; data: JsonNode; updateLabel = false) =
+    let nodeId = $data["id"]
+    if updateLabel:
+        let label = $data["label"]
+        db.exec(sql"UPDATE nodes SET label = ? WHERE id = ?", label, nodeId)
+        if label != "":
+            db.exec(sql(fmt"CREATE INDEX IF NOT EXISTS idx_nodes_{label} ON nodes(label) WHERE label = ?"), label, label)
+            # TODO: check query plan w/ example to see if index is used
+    db.exec(sql"UPDATE nodes SET properties = json(?) WHERE id = ?", $data["properties"], nodeId)
 
-proc updateNodeProps*(db: var DbConn; node: Node; properties: JsonNode) =
-    db.exec(sql"UPDATE nodes SET properties = json(?) WHERE id = ?", $properties, node.id)
+proc updateEdge*(db: var DbConn; data: JsonNode) =
+    db.exec(sql"UPDATE edges SET properties = json(?) WHERE id = ?", $data["properties"], $data["id"])
 
-proc updateNodeLabel*(db: var DbConn; nodeId: NodeId; label: string) =
-    db.exec(sql"UPDATE nodes SET label = ? WHERE id = ?", label, nodeId)
-    # TODO: add partial index for new node label & check query plan w/ example to see if it's used
-    # EXPLAIN QUERY PLAN (will show the query plan for a given query)
+# ---------- get IDs and Objects by label ----------
+proc getNodes*(db: var DbConn; label: string): seq[Node] =
+    for row in db.fastRows(sql"SELECT * FROM nodes WHERE label = ?", label):
+        result.add(Node(id: row[0], label: row[1], properties: row[2].parseJson))
 
-proc updateNodeLabel*(db: var DbConn; node: Node; label: string) =
-    db.exec(sql"UPDATE nodes SET label = ? WHERE id = ?", label, node.id)
-    # TODO: add partial index for new node label & check query plan w/ example to see if it's used
-    # EXPLAIN QUERY PLAN (will show the query plan for a given query)
+proc getEdges*(db: var DbConn; label: string): seq[Edge] =
+    for row in db.fastRows(sql"SELECT * FROM edges WHERE label = ?", label):
+        result.add(Edge(id: row[0], label: row[1], incoming: row[2], outgoing: row[3], properties: row[4].parseJson))
 
-proc updateEdgeProps*(db: var DbConn; edgeId: EdgeId; properties: JsonNode) =
-    db.exec(sql"UPDATE edges SET properties = json(?) WHERE id = ?", $properties, edgeId)
+proc getNodeIds*(db: var DbConn; label: string): seq[NodeId] =
+    for row in db.fastRows(sql"SELECT id FROM nodes WHERE label = ?", label):
+        result.add(row[0])
 
-proc updateEdgeProps*(db: var DbConn; edge: Edge; properties: JsonNode) =
-    db.exec(sql"UPDATE edges SET properties = json(?) WHERE id = ?", $properties, edge.id)
+proc getEdgeIds*(db: var DbConn; label: string): seq[EdgeId] =
+    for row in db.fastRows(sql"SELECT id FROM edges WHERE label = ?", label):
+        result.add(row[0])
+# --------------------------------------------------
 
-# TODO: add ability to get all nodes/edges with a given label (maybe / maybe not)
-# TODO: figure out, layout, and plan all graph traversals and queries needed for a labeled property graph
+# TODO: figure out, layout, and plan all graph operations, traversals, queries,
+#       pattern matching, etc. needed for a labeled property graph
 
-    
+# :)
