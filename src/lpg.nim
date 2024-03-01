@@ -1,6 +1,6 @@
 import std/[json, oids, strutils, uri]
 import pkg/db_connector/db_sqlite
-# {.experimental: "codeReordering".} # removing need for forward declarations
+{.experimental: "codeReordering".} # removing need for forward declarations
 
 type
     NodeId* = string
@@ -40,9 +40,6 @@ proc initGraphDb*(dbFileName = ":memory:"): DbConn =
     result.exec(sql"CREATE INDEX IF NOT EXISTS incoming_idx ON edges(incoming);")
     result.exec(sql"CREATE INDEX IF NOT EXISTS outgoing_idx ON edges(outgoing);")
 
-proc name*(db: var DbConn): string # fwd decl
-proc numberOfNodes*(db: var DbConn): int # fwd decl
-proc numberOfEdges*(db: var DbConn): int # fwd decl
 proc describe*(db: var DbConn): string =
     result = "Graph Name: " & db.name() &
         "\nNodes: " & $db.numberOfNodes() &
@@ -83,9 +80,6 @@ proc addEdge*(db: var DbConn; incomingNodeId, label, outgoingNodeId: string; pro
     # TODO: add partial index IF new edge label & check query plan w/ example to see if it's used
     # EXPLAIN QUERY PLAN (will show the query plan for a given query)
     result = edgeId
-
-proc containsNode*(db: var DbConn; nodeId: NodeId): bool # fwd decl
-proc containsEdge*(db: var DbConn; edgeId: EdgeId): bool # fwd decl
 
 proc getNode*(db: var DbConn; nodeId: NodeId): Node =
     if db.containsNode(nodeId):
@@ -149,77 +143,5 @@ proc updateEdgeProps*(db: var DbConn; edge: Edge; properties: JsonNode) =
 
 # TODO: add ability to get all nodes/edges with a given label (maybe / maybe not)
 # TODO: figure out, layout, and plan all graph traversals and queries needed for a labeled property graph
-
-when isMainModule:
-    var db = initGraphDb()
-    echo db.name()
-
-    let
-        nodeId = db.addNode("Person", %*{"name": "John", "age": 30})
-        nodeId2 = db.addNode("Person", %*{"name": "Jane", "age": 25})
-        nodeId3 = db.addNode("Person", %*{"name": "Jack", "age": 40})
-        edgeId = db.addEdge(nodeId, "KNOWS", nodeId2, %*{"since": 2015})
-        edgeId2 = db.addEdge(nodeId, "KNOWS", nodeId3, %*{"since": 2010})
-        edgeId3 = db.addEdge(nodeId2, "KNOWS", nodeId3, %*{"since": 2018})
-
-    echo db.describe()
-    echo db.numberOfNodes()
-    echo db.numberOfEdges()
-    echo db.nodeLabels()
-    echo db.edgeLabels()
-
-    echo "----- check if node/edge exists -----"
-    echo db.containsNode(nodeId)
-    echo db.containsEdge(edgeId)
-
-    echo "--- table nodes ---"
-    for row in db.fastRows(sql"SELECT * FROM nodes;"):
-        echo row
-    echo "--- table edges ---"
-    for row in db.fastRows(sql"SELECT * FROM edges;"):
-        echo row
-    
-    echo "----- get node/edge -----"
-    echo db.getNode(nodeId)
-    echo db.getNodeJson(nodeId)
-    echo db.getEdge(edgeId)
-    echo db.getEdgeJson(edgeId)
-    
-    # echo "----- delete node/edge -----"
-    # echo db.describe()
-    # db.delNode(nodeId)
-    # db.delEdge(edgeId3)
-    # echo db.describe()
-    # echo db.containsNode(nodeId)
-    # echo db.containsEdge(edgeId)
-    # echo db.containsEdge(edgeId2)
-    # try:
-    #     echo db.getNode(nodeId)
-    # except ValueError as e:
-    #     echo e.msg
-    # try:
-    #     echo db.getNodeJson(nodeId)
-    # except ValueError as e:
-    #     echo e.msg
-    # try:
-    #     echo db.getEdge(edgeId3)
-    # except ValueError as e:
-    #     echo e.msg
-    # try:
-    #     echo db.getEdgeJson(edgeId3)
-    # except ValueError as e:
-    #     echo e.msg
-    # echo db.numberOfNodes()
-    # echo db.numberOfEdges()
-
-    echo "----- update node/edge properties -----"
-    echo db.getNode(nodeId)
-    db.updateNodeProps(nodeId, %*{"name": "John", "age": 31})
-    echo db.getNode(nodeId)
-    db.updateNodeLabel(nodeId, "Person2")
-    echo db.getNode(nodeId)
-    echo db.getEdge(edgeId)
-    db.updateEdgeProps(edgeId, %*{"since": 2016})
-    echo db.getEdge(edgeId)
 
     
