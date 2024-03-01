@@ -7,4 +7,5 @@
   labels will be given it's own partial index from the label column (nodes/edges).
   -- CREATE INDEX IF NOT EXISTS idx_nodes_person ON nodes(label)
   -- WHERE label = 'Person';
-- Need to finish TODOs and figure out all graph traversal stuff.
+- Need to finish TODOs and figure out all graph traversal stuff and graph operations, etc.
+- Need to explore if indexes on single columns are what I need (or composite)
