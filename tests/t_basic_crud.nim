@@ -1,94 +1,56 @@
 import std/[unittest, json, jsonutils]
-import pkg/db_connector/db_sqlite
 import lpg
 
-# TODO: after running tests in suite, delete the executables (maybe in a separate script)
-#       look at https://nim-lang.org/docs/unittest.html
-#
 # Keep in mind:
 # - we can use # require(true) in tests to give up and stop if this fails
 # - we can use expect(ErrorType) to check if a block of code throws an error
 # - we can use check(booleanOperation) to print message and move on if it fails
 
-suite "Test Suite description":
-    echo "Test Suite started..."
+var
+    db = initGraphDb()
+    nodeId1, nodeId2, nodeId3: NodeId
+    edgeId1, edgeId2, edgeId3: EdgeId
 
-    setup:
-        echo "run before each test here."
-    
-    teardown:
-        echo "run after each test here."
+test "Test Name: X":
 
-    var db = initGraphDb()
-    let
-        nodeId = db.addNode("Person", %*{"name": "John", "age": 30})
-        nodeId2 = db.addNode("Person", %*{"name": "Jane", "age": 25})
-        nodeId3 = db.addNode("Person", %*{"name": "Jack", "age": 40})
-        edgeId = db.addEdge(nodeId, "KNOWS", nodeId2, %*{"since": 2015})
-        edgeId2 = db.addEdge(nodeId, "KNOWS", nodeId3, %*{"since": 2010})
-        edgeId3 = db.addEdge(nodeId2, "KNOWS", nodeId3, %*{"since": 2018})
+    nodeId1 = db.addNode("Person", %*{"name": "John", "age": 30})
+    nodeId2 = db.addNode("Person", %*{"name": "Jane", "age": 25})
+    nodeId3 = db.addNode("Person", %*{"name": "Jack", "age": 40})
+    edgeId1 = db.addEdge(nodeId1, "KNOWS", nodeId2, %*{"since": 2015})
+    edgeId2 = db.addEdge(nodeId1, "KNOWS", nodeId3, %*{"since": 2010})
+    edgeId3 = db.addEdge(nodeId2, "KNOWS", nodeId3, %*{"since": 2018})
 
-    test "Test Name: X":
+    var n1 = db.getNode(nodeId1) # PASS # query uses sqlite_autoindex_nodes_1
+    var e1 = db.getEdge(edgeId1) # PASS # query uses sqlite_autoindex_edges_1
 
-        require db.name() == ":memory:"
+    # echo db.numberOfNodes() # PASS # SCAN TABLE nodes USING COVERING INDEX node_label_idx
+    # echo db.numberOfEdges() # PASS # SCAN TABLE edges USING COVERING INDEX edge_label_idx
 
-        echo db.describe()
-        echo db.numberOfNodes()
-        echo db.numberOfEdges()
-        echo db.nodeLabels()
-        echo db.edgeLabels()
+    # echo db.nodeLabels() # PASS # SCAN TABLE edges USING COVERING INDEX node_label_idx
+    # echo db.edgeLabels() # PASS # SCAN TABLE edges USING COVERING INDEX edge_label_idx
 
-        echo "----- check if node/edge exists -----"
-        echo db.containsNode(nodeId)
-        echo db.containsEdge(edgeId)
+    # echo db.containsNode(nodeId1) # PASS # SCAN CONSTANT ROW
+    # echo db.containsEdge(edgeId1) # PASS # SCAN CONSTANT ROW
 
-        echo "--- table nodes ---"
-        for row in db.fastRows(sql"SELECT * FROM nodes;"):
-            echo row
-        echo "--- table edges ---"
-        for row in db.fastRows(sql"SELECT * FROM edges;"):
-            echo row
-        
-        echo "----- get node/edge -----"
-        echo db.getNode(nodeId)
-        echo db.getEdge(edgeId)
-        
-        # echo "----- delete node/edge -----"
-        # echo db.describe()
-        # db.delNode(nodeId)
-        # db.delEdge(edgeId3)
-        # echo db.describe()
-        # echo db.containsNode(nodeId)
-        # echo db.containsEdge(edgeId)
-        # echo db.containsEdge(edgeId2)
-        # try:
-        #     echo db.getNode(nodeId)
-        # except ValueError as e:
-        #     echo e.msg
-        # try:
-        #     echo db.getNodeJson(nodeId)
-        # except ValueError as e:
-        #     echo e.msg
-        # try:
-        #     echo db.getEdge(edgeId3)
-        # except ValueError as e:
-        #     echo e.msg
-        # try:
-        #     echo db.getEdgeJson(edgeId3)
-        # except ValueError as e:
-        #     echo e.msg
-        # echo db.numberOfNodes()
-        # echo db.numberOfEdges()
+    # echo "-----------------"
+    # echo n1
+    # n1.properties["name"] = "Not John".toJson
+    # db.updateNode(n1.toJson) # PASS # SEARCH TABLE nodes USING INDEX sqlite_autoindex_nodes_1 (id=?)
+    # echo db.getNode(n1.id).toJson()
+    # echo "-----------------"
+    # echo e1
+    # e1.properties["since"] = 2016.toJson
+    # db.updateEdge(e1.toJson) # PASS SEARCH TABLE edges USING INDEX sqlite_autoindex_edges_1 (id=?)
+    # echo db.getEdge(e1.id).toJson()
+    # echo "-----------------"
 
-        echo "----- update node/edge properties -----"
-        let n1 = db.getNode(nodeId)
-        db.updateNode(n1.toJson())
-        let n2 = db.getNode(nodeId)
-        db.updateNode(n2.toJson())
-        echo db.getNode(nodeId)
-        let e1 = db.getEdge(edgeId)
-        db.updateEdge(e1.toJson())
-        echo db.getEdge(edgeId)
-    
-    test "Test Name: Y":
-        echo "Test Y"
+    # discard db.getNodes("Person") # PASS # SEARCH TABLE nodes USING INDEX idx_nodes_Person (label=?)
+    # discard db.getEdges("KNOWS") # PASS # SEARCH TABLE edges USING INDEX idx_edges_KNOWS (label=?)
+
+    # discard db.getNodeIds("Person") # PASS # SEARCH TABLE nodes USING INDEX idx_nodes_Person (label=?)
+    # discard db.getEdgeIds("KNOWS") # PASS # SEARCH TABLE edges USING INDEX idx_edges_KNOWS (label=?)
+    # discard db.getNodeIds("ThisIsFake") # PASS # SEARCH TABLE nodes USING INDEX node_label_idx (label=?)
+
+    echo db.getNodes()
+    echo "-----------------"
+    echo db.getEdges()

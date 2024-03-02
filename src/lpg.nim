@@ -1,6 +1,6 @@
-import std/[json, oids, strutils, uri, strformat, os]
+import std/[json, oids, strutils, uri, strformat]
 import pkg/db_connector/db_sqlite
-{.experimental: "codeReordering".} # removing need for forward declarations
+{.experimental: "codeReordering".} # removes need for fwd declarations
 
 type
     NodeId* = string
@@ -18,20 +18,24 @@ type
 proc initGraphDb*(dbFileName = ":memory:"): DbConn =
     result = open(dbFileName, "", "", "")
     result.exec(sql"PRAGMA foreign_keys = ON; -- note: disabled by default in sqlite")
-    const nodeTableStmt = staticRead(currentSourcePath.parentDir() / "sql" / "node_table.sql")
-    result.exec(sql(nodeTableStmt))
-    result.exec(sql"CREATE INDEX IF NOT EXISTS node_label_idx ON nodes(label);")
-    result.exec(sql"""CREATE TABLE IF NOT EXISTS edges (
-    id TEXT NOT NULL UNIQUE,
-    label TEXT,
-    incoming TEXT,
-    outgoing TEXT,
-    properties TEXT CHECK(json_valid(properties)),
-    PRIMARY KEY(id), -- note: sqlite creates an index implicitly from the primary key
-    FOREIGN KEY(incoming) REFERENCES nodes(id) ON DELETE CASCADE,
-    FOREIGN KEY(outgoing) REFERENCES nodes(id) ON DELETE CASCADE,
-    UNIQUE(incoming, outgoing, label) ON CONFLICT REPLACE
+    result.exec(sql"""CREATE TABLE IF NOT EXISTS nodes (
+        id TEXT NOT NULL UNIQUE,
+        label TEXT,
+        properties TEXT CHECK(json_valid(properties)),
+        PRIMARY KEY(id) -- note: sqlite creates an index implicitly from the primary key
     );""")
+    result.exec(sql"""CREATE TABLE IF NOT EXISTS edges (
+        id TEXT NOT NULL UNIQUE,
+        label TEXT,
+        incoming TEXT,
+        outgoing TEXT,
+        properties TEXT CHECK(json_valid(properties)),
+        PRIMARY KEY(id), -- note: sqlite creates an index implicitly from the primary key
+        FOREIGN KEY(incoming) REFERENCES nodes(id) ON DELETE CASCADE,
+        FOREIGN KEY(outgoing) REFERENCES nodes(id) ON DELETE CASCADE,
+        UNIQUE(incoming, outgoing, label) ON CONFLICT REPLACE
+    );""")
+    result.exec(sql"CREATE INDEX IF NOT EXISTS node_label_idx ON nodes(label);")
     result.exec(sql"CREATE INDEX IF NOT EXISTS edge_label_idx ON edges(label);")
     result.exec(sql"CREATE INDEX IF NOT EXISTS incoming_idx ON edges(incoming);")
     result.exec(sql"CREATE INDEX IF NOT EXISTS outgoing_idx ON edges(outgoing);")
@@ -104,9 +108,10 @@ proc delEdge*(db: var DbConn; edgeId: EdgeId) =
     db.exec(sql"DELETE FROM edges WHERE id = ?", edgeId)
 
 proc updateNode*(db: var DbConn; data: JsonNode; updateLabel = false) =
-    let nodeId = $data["id"]
+    let 
+        nodeId = data["id"].getStr()
     if updateLabel:
-        let label = $data["label"]
+        let label = data["label"].getStr()
         db.exec(sql"UPDATE nodes SET label = ? WHERE id = ?", label, nodeId)
         if label != "":
             db.exec(sql(fmt"CREATE INDEX IF NOT EXISTS idx_nodes_{label} ON nodes(label) WHERE label = ?"), label, label)
@@ -114,12 +119,21 @@ proc updateNode*(db: var DbConn; data: JsonNode; updateLabel = false) =
     db.exec(sql"UPDATE nodes SET properties = json(?) WHERE id = ?", $data["properties"], nodeId)
 
 proc updateEdge*(db: var DbConn; data: JsonNode) =
-    db.exec(sql"UPDATE edges SET properties = json(?) WHERE id = ?", $data["properties"], $data["id"])
+    db.exec(sql"UPDATE edges SET properties = json(?) WHERE id = ?", $data["properties"], data["id"].getStr())
 
 # ---------- get IDs and Objects by label ----------
+
+proc getNodes*(db: var DbConn): seq[Node] =
+    for row in db.fastRows(sql"SELECT * FROM nodes"):
+        result.add(Node(id: row[0], label: row[1], properties: row[2].parseJson))
+
 proc getNodes*(db: var DbConn; label: string): seq[Node] =
     for row in db.fastRows(sql"SELECT * FROM nodes WHERE label = ?", label):
         result.add(Node(id: row[0], label: row[1], properties: row[2].parseJson))
+
+proc getEdges*(db: var DbConn): seq[Edge] =
+    for row in db.fastRows(sql"SELECT * FROM edges"):
+        result.add(Edge(id: row[0], label: row[1], incoming: row[2], outgoing: row[3], properties: row[4].parseJson))
 
 proc getEdges*(db: var DbConn; label: string): seq[Edge] =
     for row in db.fastRows(sql"SELECT * FROM edges WHERE label = ?", label):
@@ -136,5 +150,10 @@ proc getEdgeIds*(db: var DbConn; label: string): seq[EdgeId] =
 
 # TODO: figure out, layout, and plan all graph operations, traversals, queries,
 #       pattern matching, etc. needed for a labeled property graph
+
+# db.getNodes("Person", node.age >= 5 & node.name != "John")
+# proc getNodes*(db: var DbConn; label: string; filter: ) =
+#     discard
+# Check out Grim and see how he does it
 
 # :)
